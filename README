@@ -1,0 +1,9 @@
+          costs                                  savings          
+          known costs           estimated costs  optimise savings 
+
+1         code entry            manual estimate  hardcoded script 
+2         recurrency automated                   scalar output    
+3                                                split output     
+                                                 figure output    
+4         form input                             html output      
+5                               trend estimates  
