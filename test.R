@@ -7,7 +7,7 @@
 source("opcap.R")
 debits <- Debits(
 	Debit(name="groceries",
-	     cost=c(190, 13, 56, 100),
+	     cost=c(10, 13, 56, 100),
 	     date=as.Date(c("2023-12-12", "2024-01-01", "2024-02-01", "2024-02-04"))),
 	Debit(name="electricity",
 	     cost=16,
@@ -18,7 +18,7 @@ debits <- Debits(
 	Debit(name="event2",
 	     cost=100,
 	     date=as.Date(c("2024-02-04", "2024-02-05"))))
-credits <- Credits(as.Date(c("2023-01-01", "2024-01-01", "2024-01-15", "2024-02-01", "2024-02-05")))
+credits <- Credits(as.Date(c("2023-01-01", "2023-12-01", "2024-01-01", "2024-01-15", "2024-02-01", "2024-02-05")))
 savings <- 132
 current_date <- as.Date("2024-01-01")
 

@@ -1,9 +1,33 @@
-          costs                                  savings          
-          known costs           estimated costs  optimise savings 
+Inductive Linear Saving
+=======================
 
-1         code entry            manual estimate  hardcoded script 
-2         recurrency automated                   scalar output    
-3                                                split output     
-                                                 figure output    
-4         form input                             html output      
-5                               trend estimates  
+Vantage point: With some savings set aside at the prior credit,
+what are the savings required at the next credit? Consider only the
+next expense for each group of expenses.
+
+Base Case: There are zero dollars saved. Consider the linear growth
+function in savings required for each future expense. At next credit,
+the sum of all linear growths at that point in time are how much
+should be saved.
+
+            .
+           /|   ,.
+          / | ,  |
+         /  ,    |
+        / , |    |
+       /,   |    |
+------o-----+----+----
+
+Inductive Case: There are previously accumulated savings. Using the
+prior savings as a pivot, the linear growth function provides the
+savings required for each future expense at the next credit. The
+sum of linear growths is all the information that is required to
+be retained from the prior accumulated savings, and can be decomposed
+into individual linear growths. Then at next credit, the sum of all
+linear growths at that point in time are how much should be saved.
+
+Deviations: If at the next credit there is insufficient savings to
+match the required savings, then the following credit will adjust
+accordingly, making up the shortfall through using the credit with
+insufficient savings as the pivot and determining a new savings
+origin.
