@@ -27,7 +27,11 @@ Debits.list <- function(x, ...) {
 	} else lapply(x, \(debit) do.call(Debit, debit)) |> Debits()
 }
 Debits.character <- function(x, ...) {
-	yaml::yaml.load_file(x) |> Debits()
+	loaded_debits <- yaml::yaml.load_file(x)
+	Map(\(debit, name) within(debit, {name <- name}),
+	    loaded_debits, names(loaded_debits)) |>
+	structure(names=NULL) |>
+	Debits()
 }
 is.empty <- function(x) UseMethod("is.empty", x)
 is.empty.Debits <- function(x) vapply(x, is.empty, logical(1))
