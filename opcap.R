@@ -2,7 +2,7 @@ library(yaml)
 
 Credits <- function(x) UseMethod("Credits", x)
 Credits.character <- function(x)
-	yaml::yaml.load_file(x) |> as.Date() |> Credits()
+	readLines(x) |> as.Date() |> Credits()
 Credits.Date <- function(x) {
 	stopifnot(as.logical(length(x)))
 	structure(x, class=c("Credits", "Date"))

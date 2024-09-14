@@ -21,7 +21,7 @@ Debits(Debit(name="groceries",
              date=as.Date(c("2024-02-04", "2024-02-05")))) |>
 identical(debits) |> stopifnot()
 
-credits <- Credits("test-credits.yml")
+credits <- Credits("test-credits.dat")
 Credits(as.Date(c("2023-01-01", "2023-12-01", "2024-01-01",
                   "2024-01-15", "2024-02-01", "2024-02-05"))) |>
 identical(credits) |> stopifnot()
