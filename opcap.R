@@ -1,3 +1,5 @@
+library(yaml)
+
 Credits <- function(dates) {
 	stopifnot(is.Date(dates) && as.logical(length(dates)))
 	structure(dates, class=c("Credits", class(dates)))
@@ -9,10 +11,10 @@ start <- function(x) x["start"]
 end <- function(x) x["end"]
 Debit <- function(name, cost, date) {
 	stopifnot(is.character(name) && as.logical(length(name)) == 1)
-	stopifnot(is.Date(date) && as.logical(length(date)))
+	stopifnot(as.logical(length(date)))
 	stopifnot(is.numeric(cost) &&
 		length(cost) == 1 || length(cost) == length(date))
-	list(name=name, cost=cost, date=date) |>
+	list(name=name, cost=cost, date=as.Date(date)) |>
 	structure(class=c("Debit", "list"))
 }
 is.Debit <- function(debit) inherits(debit, "Debit")
@@ -21,8 +23,11 @@ Debits.Debit <- function(x, ...) {
 	c(list(x), list(...)) |> Debits()
 }
 Debits.list <- function(x, ...) {
-	stopifnot(all(sapply(x, is.Debit)))
-	structure(x, class=c("Debits", "list"))
+	if (all(sapply(x, is.Debit))) { structure(x, class=c("Debits", "list"))
+	} else lapply(x, \(debit) do.call(Debit, debit)) |> Debits()
+}
+Debits.character <- function(x, ...) {
+	yaml::yaml.load_file(x) |> Debits()
 }
 is.empty <- function(x) UseMethod("is.empty", x)
 is.empty.Debits <- function(x) vapply(x, is.empty, logical(1))

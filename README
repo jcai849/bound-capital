@@ -31,3 +31,5 @@ match the required savings, then the following credit will adjust
 accordingly, making up the shortfall through using the credit with
 insufficient savings as the pivot and determining a new savings
 origin.
+
+Depends: R, yaml R library
