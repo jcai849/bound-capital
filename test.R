@@ -8,17 +8,17 @@ source("opcap.R")
 
 debits <- Debits("test-expenses.yml")
 Debits(Debit(name="groceries",
-	     cost=c(10L, 13L, 56L, 100L),
-	     date=as.Date(c("2023-12-12", "2024-01-01", "2024-02-01", "2024-02-04"))),
-	Debit(name="electricity",
-	     cost=16L,
-	     date=as.Date(c("2024-01-01", "2024-01-14", "2024-02-01"))),
-	Debit(name="event1",
-	     cost=130L,
-	     date=as.Date(c("2024-02-05", "2024-02-06"))),
-	Debit(name="event2",
-	     cost=100L,
-	     date=as.Date(c("2024-02-04", "2024-02-05")))) |>
+             cost=c(10L, 13L, 56L, 100L),
+             date=as.Date(c("2023-12-12", "2024-01-01", "2024-02-01", "2024-02-04"))),
+       Debit(name="electricity",
+             cost=16L,
+             date=as.Date(c("2024-01-01", "2024-01-14", "2024-02-01"))),
+       Debit(name="event1",
+             cost=130L,
+             date=as.Date(c("2024-02-05", "2024-02-06"))),
+       Debit(name="event2",
+             cost=100L,
+             date=as.Date(c("2024-02-04", "2024-02-05")))) |>
 identical(debits) |> stopifnot()
 
 credits <- Credits("test-credits.yml")
