@@ -1,8 +1,11 @@
 library(yaml)
 
-Credits <- function(dates) {
-	stopifnot(is.Date(dates) && as.logical(length(dates)))
-	structure(dates, class=c("Credits", class(dates)))
+Credits <- function(x) UseMethod("Credits", x)
+Credits.character <- function(x)
+	yaml::yaml.load_file(x) |> as.Date() |> Credits()
+Credits.Date <- function(x) {
+	stopifnot(as.logical(length(x)))
+	structure(x, class=c("Credits", "Date"))
 }
 CreditWindow <- function(start, end)
 	c(start=start, end=end) |>
