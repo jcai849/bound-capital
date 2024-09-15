@@ -1,0 +1,12 @@
+credit:
+  from: 2024-01-01
+  by:   2 week
+
+groceries:
+  from: 2024-01-01
+  by:   4 week
+  cost: 100
+electricity:
+  from: 2024-01-01
+  by:   4 week
+  cost: 100

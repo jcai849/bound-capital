@@ -1,9 +1,62 @@
+#!/usr/bin/env Rscript
+
+VERSION <- "1.0.0"
+DOC <- paste0("opcap - Linear Saving through Prior Credit Pivot [version ", VERSION, "]
+
+Usage: opcap [FILE] -s SAVINGS [-d DATE]
+       opcap [FILE] [-s SAVINGS] [-d DATE] -x
+       opcap -h | -v
+
+Determine the savings amount required at next credit (today inclusive),
+based on savings given at prior credit.
+
+Arguments:
+	FILE  yaml file containing credit and debit info.
+	      If '-' or missing, stdin is expected.
+	-s SAVINGS --savings SAVINGS  Total savings at last credit.
+	-d DATE --date DATE  Current Date. [default: Today]
+
+Options:
+	-h --help     Show this screen.
+	-v --version  Show version.
+	-x --expand   Output the yaml input with expanded dates.
+")
+
+library(docopt)
 library(yaml)
 
-Credits <- function(x) UseMethod("Credits", x)
-Credits.character <- function(x)
-	readLines(x) |> as.Date() |> Credits()
-Credits.Date <- function(x) {
+main <- function() {
+	opts <- docopt(DOC, version=paste0(VERSION, '\n'))
+	input <- ifelse(is.null(opts$FILE), "stdin", opts$FILE) |>
+		readLines() |>
+		paste(collapse='\n') |>
+		yaml.load() |>
+		structure(class="yaml")
+	current_date <- if (identical("Today", opts$date))
+	                       Sys.Date() else as.Date(opts$date)
+	credits <- Credits(input, current_date)
+	debits <- Debits(input, current_date)
+	if (opts$expand) { expand(credits, debits) |> cat(); quit("no") }
+	savings <- as.numeric(opts$savings)
+	opcap(current_date, credits, debits, savings) |>
+	format(display_date=FALSE) |> cat(sep='\n')
+}
+
+
+opcap <- function(current_date, credits, debits, savings) {
+	# Remove debits from prior credit window
+	prior_credit_window <- filter_prior_credit_window(current_date, credits)
+	prior_credit_window_debits <- extract_debits(from=prior_credit_window, debits)
+	adjusted_savings <- savings - sum(prior_credit_window_debits)
+
+	# Pivot on prior credit (end of prior credit window == next credit)
+	remove_historical_debits(from=end(prior_credit_window), debits) |>
+	head(n=1) |>
+	save_next_debits(prior_credit_window, adjusted_savings)
+}
+
+Credits <- function(x, ...) UseMethod("Credits", x)
+Credits.Date <- function(x, ...) {
 	stopifnot(as.logical(length(x)))
 	structure(x, class=c("Credits", "Date"))
 }
@@ -12,7 +65,7 @@ CreditWindow <- function(start, end)
 	structure(class=c("CreditWindow", "Date"))
 start <- function(x) x["start"]
 end <- function(x) x["end"]
-Debit <- function(name, cost, date) {
+Debit <- function(name, cost, date, ...) {
 	stopifnot(is.character(name) && as.logical(length(name)) == 1)
 	stopifnot(as.logical(length(date)))
 	stopifnot(is.numeric(cost) &&
@@ -28,13 +81,6 @@ Debits.Debit <- function(x, ...) {
 Debits.list <- function(x, ...) {
 	if (all(sapply(x, is.Debit))) { structure(x, class=c("Debits", "list"))
 	} else lapply(x, \(debit) do.call(Debit, debit)) |> Debits()
-}
-Debits.character <- function(x, ...) {
-	loaded_debits <- yaml::yaml.load_file(x)
-	Map(\(debit, name) within(debit, {name <- name}),
-	    loaded_debits, names(loaded_debits)) |>
-	structure(names=NULL) |>
-	Debits()
 }
 is.empty <- function(x) UseMethod("is.empty", x)
 is.empty.Debits <- function(x) vapply(x, is.empty, logical(1))
@@ -54,17 +100,6 @@ head.Debit <- function(x, n=6L, ...) within(x, {
 `$.Debits` <- function(x, name) lapply(x, `[[`, name) |> do.call(c, args=_)
 `[.Debits` <- function(x, i) Debits(unclass(x)[i])
 
-opcap <- function(current_date, credits, debits, savings) {
-	# Remove debits from prior credit window
-	prior_credit_window <- filter_prior_credit_window(current_date, credits)
-	prior_credit_window_debits <- extract_debits(from=prior_credit_window, debits)
-	adjusted_savings <- savings - sum(prior_credit_window_debits)
-
-	# Pivot on prior credit (end of prior credit window == next credit)
-	remove_historical_debits(from=end(prior_credit_window), debits) |>
-	head(n=1) |>
-	save_next_debits(prior_credit_window, adjusted_savings)
-}
 
 is.Date <- function(x) inherits(x, "Date")
 
@@ -96,7 +131,7 @@ remove_historical_debits <- function(from, debits) {
 		debit$date >= from, debits)
 	expired_i <- is.empty(current_future_debits)
 	lapply(current_future_debits[expired_i], \(debit)
-		warning(sprintf("%s expired", debit$name)))
+		warning(sprintf("%s expired", debit$name), call.=F))
 	current_future_debits[!expired_i]
 }
 
@@ -133,3 +168,53 @@ linear_origin <- function(h, S, c, t) {
         structure(gradient = gr(h,S, c, t))
 }
 savings_ratio <- function(h, c, t) (h * c) / (h + as.integer(t))
+
+expand <- function(credits, debits) {
+	names(debits) <- debits$name
+	c(list(credit=credits),
+	  lapply(debits, '[', c("cost", "date"))) |>
+	as.yaml(handlers=list(Date=format))
+
+}
+format.Debits <- function(x, display_date=TRUE, display_sum=TRUE,...) {
+	fwidth <- nchar(format(sum(x))) + 5
+	c(sapply(x, \(debit) {
+		c(debit$name,
+		sprintf(paste0("%", fwidth, ".2f"), debit$cost),
+		if (display_date)
+			sprintf("\t%s", format(debit$date)) else NULL)
+	}),
+	if (display_sum) {
+		bar <- paste0(rep('-', max(nchar(x$name)) + 4), collapse='')
+		c(bar, sprintf(paste0("Sum:%", fwidth-4, ".2f"), sum(x)), bar)
+	} else NULL
+	)
+}
+
+Credits.yaml <- function(x, current_date, ...) {
+	get("credit", x) |>
+	normalise_dates(current_date) |>
+	Credits()
+}
+Debits.yaml <- function(x, current_date, ...) {
+	debits <- x[names(x) != "credit"]
+	dates <- lapply(debits, normalise_dates, current_date)
+	Map(\(debit, name, date) within(debit, {
+		name <- name
+		date <- date
+	}), debits, names(debits), dates) |>
+	structure(names=NULL) |>
+	Debits()
+}
+normalise_dates <- function(input, current_date) {
+	if (exists("date", input)) {
+		as.Date(input$date)
+	} else if (exists("to", input)) {
+		seq(as.Date(input$from), as.Date(input$to), input$by)
+	} else  {
+		to <- seq(as.Date(current_date), by=input$by, length.out=3L)
+		seq(as.Date(input$from), max(to), by=input$by)
+	}
+}
+
+if (getOption("run.main", default=TRUE)) main()
