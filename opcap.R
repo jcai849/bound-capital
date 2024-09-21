@@ -25,8 +25,8 @@ Options:
 library(docopt)
 library(yaml)
 
-main <- function() {
-	opts <- docopt(DOC, version=paste0(VERSION, '\n'))
+main <- function(argv=commandArgs(TRUE)) {
+	opts <- docopt(DOC, args=argv, version=paste0(VERSION, '\n'))
 	input <- ifelse(is.null(opts$FILE), "stdin", opts$FILE) |>
 		readLines() |>
 		paste(collapse='\n') |>
@@ -41,7 +41,6 @@ main <- function() {
 	opcap(current_date, credits, debits, savings) |>
 	format(display_date=FALSE) |> cat(sep='\n')
 }
-
 
 opcap <- function(current_date, credits, debits, savings) {
 	# Remove debits from prior credit window
