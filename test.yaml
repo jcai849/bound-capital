@@ -1,17 +1,28 @@
-credit:
+!!credit Bill:
   from: 2023-01-01
   by:   2 week
+!!credit Ben:
+  from: 2023-01-05
+  by:   2 week
+  amount: 20
 
 groceries:
   date: [2023-12-12, 2024-01-01, 2024-01-14, 2024-02-04]
-  cost: [10,         13,         56,         100]
+  amount: [10,         13,         56,         100]
 electricity:
   from: 2023-12-14
   by:   13 day
-  cost: 16
+  amount: 16
+other thing:
+  from: 2023-12-19
+  by: 20 day
+  to: 2024-02-09
 event1:
-  cost: 130
+  amount: 130
   date: [2024-02-05, 2024-02-06]
 event2:
-  cost: 100
+  amount: 100
   date: [2024-02-04, 2024-02-05]
+event3:
+  date: 2024-03-01
+  amount: 150

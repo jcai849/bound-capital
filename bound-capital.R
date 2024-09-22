@@ -1,19 +1,19 @@
 #!/usr/bin/env Rscript
 
 VERSION <- "1.0.0"
-DOC <- paste0("opcap - Linear Saving through Prior Credit Pivot [version ", VERSION, "]
+DOC <- paste0("bound-capital - Determining Bound Capital through Prior Credit Pivot [version ", VERSION, "]
 
-Usage: opcap [FILE] -s SAVINGS [-d DATE]
-       opcap [FILE] [-s SAVINGS] [-d DATE] -x
-       opcap -h | -v
+Usage: bound-capital [FILE] -a CAPITAL [-d DATE]
+       bound-capital [FILE] [-a CAPITAL] [-d DATE] -x
+       bound-capital -h | -v
 
-Determine the savings amount required at next credit (today inclusive),
-based on savings given at prior credit.
+Determine the total bound capital at next credit (today inclusive),
+based on accumulated capital from prior credit.
 
 Arguments:
 	FILE  yaml file containing credit and debit info.
 	      If '-' or missing, stdin is expected.
-	-s SAVINGS --savings SAVINGS  Total savings at last credit.
+	-a CAPITAL --accumulated CAPITAL  Total accumulated capital.
 	-d DATE --date DATE  Current Date. [default: Today]
 
 Options:
@@ -21,25 +21,95 @@ Options:
 	-v --version  Show version.
 	-x --expand   Output the yaml input with expanded dates.
 ")
-
 library(docopt)
 library(yaml)
 
 main <- function(argv=commandArgs(TRUE)) {
 	opts <- docopt(DOC, args=argv, version=paste0(VERSION, '\n'))
-	input <- ifelse(is.null(opts$FILE), "stdin", opts$FILE) |>
-		readLines() |>
-		paste(collapse='\n') |>
-		yaml.load() |>
-		structure(class="yaml")
 	current_date <- if (identical("Today", opts$date))
 	                       Sys.Date() else as.Date(opts$date)
-	credits <- Credits(input, current_date)
-	debits <- Debits(input, current_date)
-	if (opts$expand) { expand(credits, debits) |> cat(); quit("no") }
-	savings <- as.numeric(opts$savings)
-	opcap(current_date, credits, debits, savings) |>
+	ledger <- read_input(opts$FILE) |> Ledger(current_date)
+	q("no")
+	if (opts$expand) { cat(ledger); quit("no") }
+	capital <- as.numeric(opts$accumulated)
+	opcap(current_date, credits, debits, capital) |>
 	format(display_date=FALSE) |> cat(sep='\n')
+}
+
+read_input <- function(filepath) {
+	ifelse(is.null(filepath), "stdin", filepath) |>
+	readLines() |> paste(collapse='\n')
+}
+Ledger <- function(x, ...) UseMethod("Ledger", x)
+Ledger.character <- function(x, current_date) {
+	yaml.load(x, handlers=list(credit=CreditSpec)) |>
+	LedgerSpec() |>
+	Ledger(current_date)
+}
+LedgerSpec <- function(x) {
+	credits_i <- sapply(x, class) == "CreditSpec"
+	credits <- x[credits_i]
+	debits <- x[!credits_i]
+	list(credits=credits,
+	     debits=lapply(debits, DebitSpec)) |>
+	structure(class="LedgerSpec")
+
+}
+EntrySpec <- function(x) {
+	list(date=parse_date(x), amount=x$amount) |>
+	structure(class="EntrySpec")
+}
+CreditSpec <- function(x) {
+	credit <- EntrySpec(x)
+	structure(credit, class=c("CreditSpec", class(credit)))
+}
+DebitSpec <- function(x) {
+	debit <- EntrySpec(x)
+	structure(debit, class=c("DebitSpec", class(debit)))
+}
+parse_date <- function(x) {
+	if (exists("date", x)) {
+		as.Date(x$date)
+	} else if (exists("from", x)) {
+		c(list(from=as.Date(x$from)),
+		  list(by=x$by),
+		  if (exists("to", x)) list(to=as.Date(x$to)) else NULL) |>
+		structure(class="UnexpandedDate")
+	}
+}
+
+Ledger.LedgerSpec <- function(x, current_date) {
+	lapply(x$credits, extend_dates, beyond=current_date) |>
+	lapply(x$debits, extend_dates, beyond=_) -> debit_dates
+	latest_debit <- max(vapply(debit_dates, max, Sys.Date()))
+	credit_dates <- lapply(x$credits, extend_dates, beyond=latest_debit)
+	credits <- Map(Credit, credit_dates)
+	debits <- Map(Debit, debit_dates, lapply(x$debits, "[[", "cost"))
+	Ledger(credits, debits)
+}
+
+# extend dates past some point if allowed; return dates
+extend_dates <- function(x, beyond) UseMethod("extend", x)
+extend_dates.EntrySpec <- function(x, beyond) extend_dates(x$date, beyond)
+extend_dates.Date <- function(x, beyond) item
+extend_dates.UnexpandedDate <- function(x, beyond) {
+	from <- as.Date(x$from)
+	to <- if (!is.null(x$to)) {
+		as.Date(x$to)
+	} else {
+		seq(beyond, by=x$by, length.out=2)[2]
+	}
+	seq(from, to, by=x$by)
+}
+
+Credits <- function(dates) structure(list(dates=dates), class="Credits")
+Debits <- function(dates, cost) {
+	list(dates=dates, cost=rep(cost, length.out=length(dates))) |>
+	structure(class="Debits")
+}
+
+Ledger.Credits <- function(x, debits) {
+	structure(list(credits=x, debits=debits), class="Ledger")
 }
 
 opcap <- function(current_date, credits, debits, savings) {
@@ -54,7 +124,6 @@ opcap <- function(current_date, credits, debits, savings) {
 	save_next_debits(prior_credit_window, adjusted_savings)
 }
 
-Credits <- function(x, ...) UseMethod("Credits", x)
 Credits.Date <- function(x, ...) {
 	stopifnot(as.logical(length(x)))
 	structure(x, class=c("Credits", "Date"))
@@ -73,7 +142,6 @@ Debit <- function(name, cost, date, ...) {
 	structure(class=c("Debit", "list"))
 }
 is.Debit <- function(debit) inherits(debit, "Debit")
-Debits <- function(x, ...) UseMethod("Debits")
 Debits.Debit <- function(x, ...) {
 	c(list(x), list(...)) |> Debits()
 }
@@ -188,32 +256,6 @@ format.Debits <- function(x, display_date=TRUE, display_sum=TRUE,...) {
 		c(bar, sprintf(paste0("Sum:%", fwidth-4, ".2f"), sum(x)), bar)
 	} else NULL
 	)
-}
-
-Credits.yaml <- function(x, current_date, ...) {
-	get("credit", x) |>
-	normalise_dates(current_date) |>
-	Credits()
-}
-Debits.yaml <- function(x, current_date, ...) {
-	debits <- x[names(x) != "credit"]
-	dates <- lapply(debits, normalise_dates, current_date)
-	Map(\(debit, name, date) within(debit, {
-		name <- name
-		date <- date
-	}), debits, names(debits), dates) |>
-	structure(names=NULL) |>
-	Debits()
-}
-normalise_dates <- function(input, current_date) {
-	if (exists("date", input)) {
-		as.Date(input$date)
-	} else if (exists("to", input)) {
-		seq(as.Date(input$from), as.Date(input$to), input$by)
-	} else  {
-		to <- seq(as.Date(current_date), by=input$by, length.out=3L)
-		seq(as.Date(input$from), max(to), by=input$by)
-	}
 }
 
 if (getOption("run.main", default=TRUE)) main()
