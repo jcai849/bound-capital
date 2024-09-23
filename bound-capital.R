@@ -21,6 +21,7 @@ Options:
 	-v --version  Show version.
 	-x --expand   Output the yaml input with expanded dates.
 ")
+
 library(docopt)
 library(yaml)
 
@@ -30,10 +31,53 @@ main <- function(argv=commandArgs(TRUE)) {
 	                       Sys.Date() else as.Date(opts$date)
 	ledger <- read_input(opts$FILE) |> Ledger(current_date)
 	if (opts$expand) { cat(str(ledger)); quit("no") }
-	capital <- as.numeric(opts$accumulated)
-	# TODO: normalise dates
-	opcap(current_date, credits, debits, capital) |>
+	accumulated_capital <- as.numeric(opts$accumulated)
+	prepare(ledger, current_date) |>
+	bound_capital(accumulated_capital) |>
 	format(display_date=FALSE) |> cat(sep='\n')
+}
+
+prepare <- function(ledger, current_date) {
+	remove_historical(ledger, current_date) |>
+	remove_successive_debits() |>
+	normalise()
+}
+remove_successive_debits <- function(ledger) {
+	lapply(ledger$debits,
+	       \(debit) Debits(debit$dates[1], debit$amount[1])) |>
+	Ledger(ledger$credits, debits=_)
+}
+
+normalise <- function(ledger) {
+	credits_collapsed <- lapply(ledger$credits, "[[", "dates") |>
+	do.call(c, args=_) |>
+	unique()
+	# What is the earliest credit that each debit immediately succeeds?
+	debit_normalised_dates <- lapply(ledger$debits, \(debit) {
+		diff(debit$dates >= credits_collapsed) |> which.min()
+	})
+	debits <- Map(Debits, debit_normalised_dates,
+	              lapply(ledger$debits, "[[", "amount"))
+	credit_normalised_dates <- seq(do.call(max, debit_normalised_dates))
+	credits <- list(Credits(credit_normalised_dates))
+	Ledger(credits, debits)
+}
+
+remove_historical <- function(x, current_date) UseMethod("remove_historical", x)
+remove_historical.Ledger <- function(x, current_date) {
+	future_credits <- lapply(x$credits, remove_historical, current_date)
+	next_credit <- lapply(future_credits, "[[", "dates") |>
+	               do.call(min, args=_)
+	future_debits <- lapply(x$debits, remove_historical,
+	                        next_credit)
+	Ledger(future_credits, debits=future_debits)
+}
+remove_historical.Credits <- function(x, current_date) {
+	Credits(x$dates[x$dates >= current_date])
+}
+remove_historical.Debits <- function(x, current_date) {
+	keep_i <- x$dates >= current_date
+	Debits(x$dates[keep_i], x$amount[keep_i])
 }
 
 read_input <- function(filepath) {
@@ -80,17 +124,14 @@ parse_date <- function(x) {
 
 Ledger.LedgerSpec <- function(x, current_date) {
 	lapply(x$credits, extend_dates, beyond=current_date) |>
-	latest() |>
+	do.call(max, args=_) |>
 	lapply(x$debits, extend_dates, beyond=_) -> debit_dates
 	credit_dates <- lapply(x$credits, extend_dates,
-	                       beyond=latest(debit_dates))
+	                       beyond=do.call(max, args=debit_dates))
 	credits <- Map(Credits, credit_dates)
 	debits <- Map(Debits, debit_dates, lapply(x$debits, "[[", "amount"))
 	Ledger(credits, debits)
 }
-
-# list[Date] -> Date
-latest <- function(l) { m <- lapply(l, max); m[[which.max(m)]] }
 
 # extend dates past some point if allowed; return dates
 extend_dates <- function(x, beyond) UseMethod("extend_dates", x)
@@ -106,116 +147,28 @@ extend_dates.UnexpandedDate <- function(x, beyond) {
 	seq(from, to, by=x$by)
 }
 
-Credits <- function(dates) structure(list(dates=dates), class="Credits")
-Debits <- function(dates, cost) {
-	list(dates=dates, cost=rep(cost, length.out=length(dates))) |>
-	structure(class="Debits")
+Credits <- function(dates) structure(list(dates=dates), class=c("Credits", "Entry"))
+Debits <- function(dates, amount) {
+	list(dates=dates, amount=rep(amount, length.out=length(dates))) |>
+	structure(class=c("Debits", "Entry"))
 }
 
 Ledger.list <- function(x, debits) {
 	structure(list(credits=x, debits=debits), class="Ledger")
 }
 
-opcap <- function(current_date, credits, debits, savings) {
-	# Remove debits from prior credit window
-	prior_credit_window <- filter_prior_credit_window(current_date, credits)
-	prior_credit_window_debits <- extract_debits(from=prior_credit_window, debits)
-	adjusted_savings <- savings - sum(prior_credit_window_debits)
 
-	# Pivot on prior credit (end of prior credit window == next credit)
-	remove_historical_debits(from=end(prior_credit_window), debits) |>
-	head(n=1) |>
-	save_next_debits(prior_credit_window, adjusted_savings)
-}
-
-Credits.Date <- function(x, ...) {
-	stopifnot(as.logical(length(x)))
-	structure(x, class=c("Credits", "Date"))
-}
-CreditWindow <- function(start, end)
-	c(start=start, end=end) |>
-	structure(class=c("CreditWindow", "Date"))
-start <- function(x) x["start"]
-end <- function(x) x["end"]
-Debit <- function(name, cost, date, ...) {
-	stopifnot(is.character(name) && as.logical(length(name)) == 1)
-	stopifnot(as.logical(length(date)))
-	stopifnot(is.numeric(cost) &&
-		length(cost) == 1 || length(cost) == length(date))
-	list(name=name, cost=cost, date=as.Date(date)) |>
-	structure(class=c("Debit", "list"))
-}
-is.Debit <- function(debit) inherits(debit, "Debit")
-Debits.Debit <- function(x, ...) {
-	c(list(x), list(...)) |> Debits()
-}
-Debits.list <- function(x, ...) {
-	if (all(sapply(x, is.Debit))) { structure(x, class=c("Debits", "list"))
-	} else lapply(x, \(debit) do.call(Debit, debit)) |> Debits()
-}
-is.empty <- function(x) UseMethod("is.empty", x)
-is.empty.Debits <- function(x) vapply(x, is.empty, logical(1))
-is.empty.Debit <- function(x) length(x$date) == 0
-Summary.Debits <- function(..., na.rm) {
-	x <- list(...)
-	if (length(x) > 1) stop("summary not implemented for more than one argument")
-	do.call(.Generic, list(x[[1]]$cost))
-}
-head.Debits <- function(x, n=6L, ...) {
-	lapply(x, head, n) |> Debits()
-}
-head.Debit <- function(x, n=6L, ...) within(x, {
-		cost <- head(cost, n)
-		date <- head(date, n)
-	})
-`$.Debits` <- function(x, name) lapply(x, `[[`, name) |> do.call(c, args=_)
-`[.Debits` <- function(x, i) Debits(unclass(x)[i])
-
-
-is.Date <- function(x) inherits(x, "Date")
-
-filter_debits <- function(filter, debits) {
-	i <- lapply(debits, filter)
-	Map(\(debit, i) within(debit, {
-		if (length(cost) > 1) cost <- cost[i]
-		date <- date[i]
-	}), debits, i) |>
-	Debits()
-}
-
-filter_prior_credit_window <- function(current_date, credits) {
-	next_credit_i <- which.max(current_date <= credits)
-	CreditWindow(start=credits[next_credit_i - 1],
-	             end=credits[next_credit_i])
-
-}
-extract_debits <- function(from, debits) {
-	extracted_debits <- filter_debits(\(debit)
-		debit$date >= start(from) &
-		debit$date < end(from),
-		debits)
-	extracted_debits[!is.empty(extracted_debits)]
-}
-
-remove_historical_debits <- function(from, debits) {
-	current_future_debits <- filter_debits(\(debit)
-		debit$date >= from, debits)
-	expired_i <- is.empty(current_future_debits)
-	lapply(current_future_debits[expired_i], \(debit)
-		warning(sprintf("%s expired", debit$name), call.=F))
-	current_future_debits[!expired_i]
-}
-
-save_next_debits <- function(next_debits, prior_credit_window, savings) {
-	costs <- next_debits$cost
-	dates <- next_debits$date
-	time_until_debits <- dates - start(prior_credit_window)
+bound_capital <- function(ledger, savings) {
+	costs <- sapply(ledger$debits, "[[", "amount")
+	time_until_debits <- sapply(ledger$debits, "[[", "dates")
 	origin <- if (savings == 0) { 0 } else {
 		o <- nlm(linear_origin, 30,
 		         S=savings, c=costs, t=time_until_debits,
 		         iterlim=1E4)
 		if (o$code > 2) stop("error locating origin") else o$estimate
 	}
+	browser()
+	# TODO: review with green book
 	savings_split <- savings_ratio(origin, costs, time_until_debits) *
 		as.numeric((origin + diff(prior_credit_window)) / origin)
 	Map(Debit,
@@ -238,15 +191,8 @@ linear_origin <- function(h, S, c, t) {
         (S - sum(savings_ratio(h,c,t)))^2 |>
         structure(gradient = gr(h,S, c, t))
 }
-savings_ratio <- function(h, c, t) (h * c) / (h + as.integer(t))
+savings_ratio <- function(h, c, t) (h * c) / (h + t)
 
-expand <- function(credits, debits) {
-	names(debits) <- debits$name
-	c(list(credit=credits),
-	  lapply(debits, '[', c("cost", "date"))) |>
-	as.yaml(handlers=list(Date=format))
-
-}
 format.Debits <- function(x, display_date=TRUE, display_sum=TRUE,...) {
 	fwidth <- nchar(format(sum(x))) + 5
 	c(sapply(x, \(debit) {
