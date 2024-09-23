@@ -37,7 +37,6 @@ Usage: See opcap.R (really)
 Depends: R, yaml & docopt R library
 
 TODO:
-  - Investigate: ./opcap.R -d 2024-02-12 -s 10 <test2.yaml
-  - Map debit dates to their opening credit window
   - Consider how to handle multiple debits of the same group within
     the next credit window
+  - Display free capital as well

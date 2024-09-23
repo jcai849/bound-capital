@@ -29,9 +29,9 @@ main <- function(argv=commandArgs(TRUE)) {
 	current_date <- if (identical("Today", opts$date))
 	                       Sys.Date() else as.Date(opts$date)
 	ledger <- read_input(opts$FILE) |> Ledger(current_date)
-	q("no")
-	if (opts$expand) { cat(ledger); quit("no") }
+	if (opts$expand) { cat(str(ledger)); quit("no") }
 	capital <- as.numeric(opts$accumulated)
+	# TODO: normalise dates
 	opcap(current_date, credits, debits, capital) |>
 	format(display_date=FALSE) |> cat(sep='\n')
 }
@@ -47,7 +47,7 @@ Ledger.character <- function(x, current_date) {
 	Ledger(current_date)
 }
 LedgerSpec <- function(x) {
-	credits_i <- sapply(x, class) == "CreditSpec"
+	credits_i <- sapply(x, inherits, "CreditSpec")
 	credits <- x[credits_i]
 	debits <- x[!credits_i]
 	list(credits=credits,
@@ -80,24 +80,28 @@ parse_date <- function(x) {
 
 Ledger.LedgerSpec <- function(x, current_date) {
 	lapply(x$credits, extend_dates, beyond=current_date) |>
+	latest() |>
 	lapply(x$debits, extend_dates, beyond=_) -> debit_dates
-	latest_debit <- max(vapply(debit_dates, max, Sys.Date()))
-	credit_dates <- lapply(x$credits, extend_dates, beyond=latest_debit)
-	credits <- Map(Credit, credit_dates)
-	debits <- Map(Debit, debit_dates, lapply(x$debits, "[[", "cost"))
+	credit_dates <- lapply(x$credits, extend_dates,
+	                       beyond=latest(debit_dates))
+	credits <- Map(Credits, credit_dates)
+	debits <- Map(Debits, debit_dates, lapply(x$debits, "[[", "amount"))
 	Ledger(credits, debits)
 }
 
+# list[Date] -> Date
+latest <- function(l) { m <- lapply(l, max); m[[which.max(m)]] }
+
 # extend dates past some point if allowed; return dates
-extend_dates <- function(x, beyond) UseMethod("extend", x)
+extend_dates <- function(x, beyond) UseMethod("extend_dates", x)
 extend_dates.EntrySpec <- function(x, beyond) extend_dates(x$date, beyond)
-extend_dates.Date <- function(x, beyond) item
+extend_dates.Date <- function(x, beyond) x
 extend_dates.UnexpandedDate <- function(x, beyond) {
 	from <- as.Date(x$from)
 	to <- if (!is.null(x$to)) {
 		as.Date(x$to)
 	} else {
-		seq(beyond, by=x$by, length.out=2)[2]
+		seq(from=beyond, by=x$by, length.out=2)[2]
 	}
 	seq(from, to, by=x$by)
 }
@@ -108,7 +112,7 @@ Debits <- function(dates, cost) {
 	structure(class="Debits")
 }
 
-Ledger.Credits <- function(x, debits) {
+Ledger.list <- function(x, debits) {
 	structure(list(credits=x, debits=debits), class="Ledger")
 }
 
