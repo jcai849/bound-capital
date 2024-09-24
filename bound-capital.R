@@ -3,7 +3,7 @@
 VERSION <- "1.0.0"
 DOC <- paste0("bound-capital - Determine Bound Capital [version ", VERSION, "]
 
-Usage: bound-capital [FILE] -a CAPITAL [-d DATE]
+Usage: bound-capital [FILE] -a CAPITAL [-d DATE] [-p PLOTNAME]
        bound-capital [FILE] [-a CAPITAL] [-d DATE] -x
        bound-capital -h | -v
 
@@ -16,6 +16,7 @@ Arguments:
 	      If '-' or missing, stdin is expected.
 	-a CAPITAL --accumulated CAPITAL  Total accumulated capital.
 	-d DATE --date DATE  Current Date. [default: Today]
+	-p PLOTNAME --plot PLOTNAME Plot linear growth to svg.
 
 Options:
 	-h --help     Show this screen.
@@ -34,7 +35,7 @@ main <- function(argv=commandArgs(TRUE)) {
 	if (opts$expand) { cat(str(ledger)); quit("no") }
 	accumulated_capital <- as.numeric(opts$accumulated)
 	prepare(ledger, current_date) |>
-	bound_capital(accumulated_capital) |>
+	bound_capital(accumulated_capital, opts$plot) |>
 	as.list() |> as.yaml(precision=2) |> cat(sep='\n')
 }
 
@@ -155,7 +156,7 @@ normalise <- function(ledger) {
 	Ledger(credits, debits)
 }
 
-bound_capital <- function(ledger, savings) {
+bound_capital <- function(ledger, savings, plot_filename) {
 	costs <- sapply(ledger$debits, "[[", "amount")
 	time_until_debits <- sapply(ledger$debits, "[[", "dates")
 	origin <- if (savings == 0) { 0 } else {
@@ -164,6 +165,9 @@ bound_capital <- function(ledger, savings) {
 		         iterlim=1E4)
 		if (o$code > 2) stop("error locating origin") else o$estimate
 	}
+	if (!is.null(plot_filename))
+		plot_growth(origin, costs, time_until_debits,
+		            names(ledger$debits), plot_filename)
 	savings_ratio(origin + 1, costs, time_until_debits - 1)
 }
 
@@ -180,5 +184,21 @@ linear_origin <- function(h, S, c, r) {
         structure(gradient = gr(h, S, c, r))
 }
 savings_ratio <- function(h, c, r) (h * c) / (h + r)
+
+plot_growth <- function(h, c, r, debit_names, filename) {
+        svg(filename)
+        plot(c(1.3*(-h), 1.2*max(r)), c(0, max(c)), type="n",
+                xlab="Time (Credit Events)", ylab="Amount",
+                main="Capital Growth toward Expenses with Capital Pivot")
+        text(r, c, debit_names, adj=c(-0.1,1))
+        for (i in seq(length(c))) lines(c(-h, r[i], r[i]), c(0, c[i], 0))
+        current_savings <- savings_ratio(h, c, r)
+        text(0, max(current_savings), "Pivot\n(Capital)", adj=c(1,-0.1))
+        segments(0,0,0,max(current_savings))
+        next_savings <- savings_ratio(h+1,c,r-1)
+        text(1, max(next_savings), "Next Credit Event", adj=c(1.1,-0.1))
+        abline(v=1,lty=2)
+        dev.off()
+}
 
 if (getOption("run.main", default=TRUE)) main()
