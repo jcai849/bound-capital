@@ -1,5 +1,5 @@
-Inductive Linear Saving through Prior Credit Pivot
-==================================================
+Inductive Linear Capital Growth through Accumulated Capital Pivot
+==================================================================
 
 Vantage point: With some savings set aside at the prior credit,
 what are the savings required at the next credit? Consider only the
@@ -32,9 +32,9 @@ accordingly, making up the shortfall through using the credit with
 insufficient savings as the pivot and determining a new savings
 origin.
 
-Usage: See opcap.R (really)
+Usage: See bound-capital.R (really), and test.{sh,yaml} for example input
 
-Depends: R, yaml & docopt R library
+Depends: R; yaml & docopt R libraries
 
 TODO:
   - Consider how to handle multiple debits of the same group within
