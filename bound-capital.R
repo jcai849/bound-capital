@@ -173,8 +173,17 @@ bound_capital <- function(ledger, savings, plot_filename) {
 
 # h: time since savings origin
 # S: savings
-# c: vector of costs
+# c: vector of costs/debits
 # r: vector of time remaining until each cost is incurred
+# LaTeX:
+# \begin{align}
+# \frac{s_i}{c_i} &= \frac{h}{h + r_i} \\
+# s_i &= \frac{c_i h}{h + r_i}\\
+# S &= \sum s_i \\
+#   &= \sum \frac{c_i h}{h + r_i}\\
+# f(h) &= (S - \sum \frac{c_i h}{h + r})^2\\
+# \frac{df}{dh} &= 2(\sum \frac{c_i}{h + r_i} + \frac{c_i h}{(h + r_i)^2})(S - \sum \frac{c_i h}{h + r_i})^2
+# \end{align}
 linear_origin <- function(h, S, c, r) {
         gr <- function(h, S, c, r)
                 2 *
