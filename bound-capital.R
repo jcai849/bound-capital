@@ -175,7 +175,7 @@ bound_capital <- function(ledger, savings, plot_filename) {
 # S: savings
 # c: vector of costs/debits
 # r: vector of time remaining until each cost is incurred
-# LaTeX:
+# LaTeX (NB: Makes sense drawn geometrically, and with plot):
 # \begin{align}
 # \frac{s_i}{c_i} &= \frac{h}{h + r_i} \\
 # s_i &= \frac{c_i h}{h + r_i}\\
