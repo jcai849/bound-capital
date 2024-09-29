@@ -35,8 +35,13 @@ main <- function(argv=commandArgs(TRUE)) {
 	if (opts$expand) { cat(str(ledger)); quit("no") }
 	accumulated_capital <- as.numeric(opts$accumulated)
 	prepare(ledger, current_date) |>
-	bound_capital(accumulated_capital, opts$plot) |>
-	as.list() |> as.yaml(precision=2) |> cat(sep='\n')
+	maybe_plot(accumulated_capital, opts$plot) |>
+	bound_capital(accumulated_capital) |>
+	write_output()
+}
+
+write_output <- function(x) {
+	as.list(x) |> as.yaml(precision=2) |> cat(sep='\n')
 }
 
 LedgerSpec <- function(x) {
@@ -46,7 +51,6 @@ LedgerSpec <- function(x) {
 	list(credits=credits,
 	     debits=lapply(debits, DebitSpec)) |>
 	structure(class="LedgerSpec")
-
 }
 EntrySpec <- function(x) {
 	list(date=parse_date(x), amount=x$amount) |>
@@ -73,23 +77,67 @@ Ledger.LedgerSpec <- function(x, current_date) {
 	lapply(x$debits, extend_dates, beyond=_) -> debit_dates
 	credit_dates <- lapply(x$credits, extend_dates,
 	                       beyond=do.call(max, args=debit_dates))
-	credits <- Map(Credits, credit_dates)
-	debits <- Map(Debits, debit_dates, lapply(x$debits, "[[", "amount"))
-	Ledger(credits, debits)
+	credits <- Map(list,
+	               dates=credit_dates,
+	               amount=lapply(x$credits, "[[", "amount")) |>
+ 	           Credits()
+	debits <- Map(list,
+	              dates=debit_dates,
+	              amount=lapply(x$debits, "[[", "amount")) |>
+ 	           Debits()
+	Ledger(list(credits=credits, debits=debits))
 }
-Ledger.list <- function(x, debits) {
-	structure(list(credits=x, debits=debits), class="Ledger")
+Ledger.list <- function(x) {
+	stopifnot(inherits(x$debits, "Debits"),
+	          inherits(x$credits, "Credits"))
+	structure(x, class=c("LedgerList", "Ledger"))
 }
-Credits <- function(dates) structure(list(dates=dates), class=c("Credits", "Entry"))
-Debits <- function(dates, amount) {
-	list(dates=dates, amount=rep(amount, length.out=length(dates))) |>
-	structure(class=c("Debits", "Entry"))
+Entry <- function(x) UseMethod("Entry", x)
+Entry.Entry <- identity
+Entry.list <- function(x) {
+	stopifnot(is.list(x), all(names(x) %in% c("amount", "dates")))
+	within(x, {
+		if (!is.null(amount))
+			amount <- rep(amount, length.out=length(dates))
+	}) |>
+	structure(class="Entry")
 }
+Entries <- function(x) {
+	lapply(x, Entry) |>
+	structure(class=c("EntriesList", "Entries"))
+}
+Dates <- function(x) UseMethod("Dates", x)
+Dates.EntriesList <- function(x) {
+	lapply(x, Dates) |>
+	structure(class="DatesList")
+}
+Dates.Entry <- function(x) x$dates
+Amount <- function(x) UseMethod("Amount", x)
+Amount.EntriesList <- function(x) {
+	lapply(x, Amount) |> structure(class="AmountsList")
+}
+Amount.Entry <- function(x) x$amount
+unique.DatesList <- function(x, incomparables=FALSE) {
+	do.call(c, args=x) |> unique()
+}
+Summary.DatesList <- function(..., na.rm=FALSE)
+	do.call(.Generic, args=c(..., na.rm=na.rm))
 
 read_input <- function(filepath) {
 	ifelse(is.null(filepath), "stdin", filepath) |>
 	readLines() |> paste(collapse='\n')
 }
+Credits <- function(x) UseMethod("Credits", x)
+Credits.list <- function(x) Entries(x) |> Credits()
+Credits.Entries <- function(x)
+	structure(x, class=c("CreditsList", "Credits", class(x)))
+Credits.LedgerList <- function(x) x$credits
+Debits <- function(x) UseMethod("Debits", x)
+Debits.list <- function(x) Entries(x) |> Debits()
+Debits.Entries <- function(x)
+	structure(x, class=c("DebitsList", "Debits", class(x)))
+Debits.LedgerList <- function(x) x$debits
+is.Debits <- function(x) inherits(x, "Debits")
 
 # extend dates past some point if allowed; return dates
 extend_dates <- function(x, beyond) UseMethod("extend_dates", x)
@@ -115,60 +163,116 @@ parse_date <- function(x) {
 	}
 }
 
-prepare <- function(ledger, current_date) {
-	remove_historical(ledger, current_date) |>
-	remove_successive_debits() |>
-	normalise()
+prepare <- function(x, current_date) UseMethod("prepare", x)
+prepare.Ledger <- function(x, current_date) {
+	remove_historical(x, current_date) |>
+	normalise() |>
+	collapse() |>
+	remove_successive_debits()
 }
 remove_historical <- function(x, current_date) UseMethod("remove_historical", x)
 remove_historical.Ledger <- function(x, current_date) {
-	future_credits <- lapply(x$credits, remove_historical, current_date)
-	next_credit <- lapply(future_credits, "[[", "dates") |>
-	               do.call(min, args=_)
-	future_debits <- lapply(x$debits, remove_historical,
-	                        next_credit)
-	Ledger(future_credits, debits=future_debits)
+	future_credits <- remove_historical(Credits(x), current_date)
+	next_credit <- Dates(future_credits) |> min()
+	future_debits <- remove_historical(Debits(x), next_credit)
+	Ledger(list(credits=future_credits, debits=future_debits))
 }
 remove_historical.Credits <- function(x, current_date) {
-	Credits(x$dates[x$dates >= current_date])
+	NextMethod(x) |> Credits()
 }
 remove_historical.Debits <- function(x, current_date) {
-	keep_i <- x$dates >= current_date
-	Debits(x$dates[keep_i], x$amount[keep_i])
+	NextMethod(x) |> Debits()
 }
-remove_successive_debits <- function(ledger) {
-	lapply(ledger$debits,
-	       \(debit) Debits(debit$dates[1], debit$amount[1])) |>
-	Ledger(ledger$credits, debits=_)
+remove_historical.EntriesList <- function(x, current_date) {
+	arrange_entry_by_date(\(dates) dates >= current_date) |>
+	Map(x) |>
+	Entries()
 }
-normalise <- function(ledger) {
-	credits_collapsed <- lapply(ledger$credits, "[[", "dates") |>
-	do.call(c, args=_) |>
-	unique()
-	# What is the earliest credit that each debit immediately succeeds?
-	debit_normalised_dates <- lapply(ledger$debits, \(debit) {
-		diff(debit$dates >= credits_collapsed) |> which.min()
+remove_successive_debits <- function(x) UseMethod("remove_successive_debits", x)
+remove_successive_debits.Ledger <- function(x) {
+	Debits(x) |> sort() |> head(1) |>
+	list(credits=Credits(x), debits=_) |>
+	Ledger()
+}
+# arrange_fun takes "dates" argument
+arrange_entry_by_date <- function(arrange) function(x, ...) {
+	with(x, {
+		i <- arrange(dates)
+		Entry(list(dates=dates[i], amount=amount[i]))
 	})
-	debits <- Map(Debits, debit_normalised_dates,
-	              lapply(ledger$debits, "[[", "amount"))
-	credit_normalised_dates <- seq(do.call(max, debit_normalised_dates))
-	credits <- list(Credits(credit_normalised_dates))
-	Ledger(credits, debits)
+}
+head.Credits <- function(x, n=6L, ...) NextMethod(x) |> Credits()
+head.Debits <- function(x, n=6L, ...) NextMethod(x) |> Debits()
+head.EntriesList <- function(x, n=6L, ...) lapply(x, head, n=n, ...) |> Entries()
+head.Entry <- function(x, n=6L, ...) lapply(x, head, n=n, ...) |> Entry()
+sort.Credits <- function(x, decreasing=FALSE, ...) NextMethod(x) |> Credits()
+sort.Debits <- function(x, decreasing=FALSE, ...) NextMethod(x) |> Debits()
+sort.EntriesList <- function(x, decreasing=FALSE, ...)
+	lapply(x, sort, decreasing=decreasing, ...) |> Entries()
+sort.Entry <- arrange_entry_by_date(order)
+
+collapse <- function(x) UseMethod("collapse", x)
+collapse.Ledger <- function(x) {
+	Debits(x) |> collapse() |>
+	list(credits=Credits(x), debits=_) |> Ledger()
+}
+collapse.DebitsList <- function(x)
+	lapply(x, collapse) |> Debits()
+collapse.Entry <- function(x) with(x, {
+	tapply(amount, dates, sum, simplify=FALSE) |>
+	unlist(use.names=FALSE) |>
+	list(amount=_, dates=sort(unique(dates))) |>
+	Entry()
+})
+
+normalise <- function(x, compare) UseMethod("normalise", x)
+normalise.Ledger <- function(x) {
+	debits <- normalise(Debits(x), unique(Dates(Credits(x))))
+	credits <- normalise(Credits(x), max(Dates(debits)))
+	Ledger(list(credits=credits, debits=debits))
+}
+normalise.DebitsList <- function(x, compare) {
+	# What is the earliest credit that each debit immediately succeeds?
+	lapply(Dates(x), findInterval, sort(compare)) |>
+	Map(list, dates=_, amount=Amount(x)) |> Debits()
+
+}
+normalise.CreditsList <- function(x, compare) {
+	Map(list, dates=seq(compare), amount=Amount(x)) |> Credits()
 }
 
-bound_capital <- function(ledger, savings, plot_filename) {
-	costs <- sapply(ledger$debits, "[[", "amount")
-	time_until_debits <- sapply(ledger$debits, "[[", "dates")
-	origin <- if (savings == 0) { 0 } else {
+with_capital_growth <- function(f) function(x, accumulated_capital) {
+	stopifnot(is.Debits(x))
+	costs <- Amount(x) |> unlist()
+	time_until_debits <- Dates(x) |> unlist()
+	origin <- determine_origin(costs, time_until_debits, accumulated_capital)
+	f(origin, costs, time_until_debits)
+}
+
+bound_capital <- function(x, accumulated_capital)
+	UseMethod("bound_capital", x)
+bound_capital.Ledger <- function(x, accumulated_capital) {
+	bound_capital(Debits(x), accumulated_capital)
+}
+bound_capital.DebitsList <- with_capital_growth(
+	\(origin, costs, time_until_debits)
+		savings_ratio(origin + 1, costs, time_until_debits - 1)
+)
+maybe_plot <- function(x, accumulated_capital, plotname) {
+	p <- with_capital_growth(\(origin, costs, time_until_debits)
+		plot_growth(origin, costs, time_until_debits,names(Debits(x)), plotname))
+	if (!is.null(plotname)) p(Debits(x), accumulated_capital)
+	x
+}
+ 
+
+determine_origin <- function(costs, time_until_debits, savings) {
+	if (savings == 0 || savings > sum(costs)) { 0 } else {
 		o <- nlm(linear_origin, 30,
 		         S=savings, c=costs, r=time_until_debits,
 		         iterlim=1E4)
 		if (o$code > 2) stop("error locating origin") else o$estimate
 	}
-	if (!is.null(plot_filename))
-		plot_growth(origin, costs, time_until_debits,
-		            names(ledger$debits), plot_filename)
-	savings_ratio(origin + 1, costs, time_until_debits - 1)
 }
 
 # h: time since savings origin

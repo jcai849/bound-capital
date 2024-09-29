@@ -9,10 +9,9 @@ test_main <- function() {
 
 test_bound_capital <- function() {
 	origin <- -5
-	ledger <- Ledger(list(
-		Credits(dates=1:3)),
-		list(a=Debits(dates=1, amount=100),
-		     b=Debits(dates=3, amount=100))
+	ledger <- Ledger(
+		Entries(dates=list(1:3), amount=list(NULL)),
+		Entries(dates=list(1,3), amount=list(100,100))
 	)
 	costs <- sapply(ledger$debits, "[[", "amount")
 	time_until_debits <- sapply(ledger$debits, "[[", "dates")
@@ -29,4 +28,4 @@ test_plot <- function() {
 	plot_growth(h,c,r,debit_names,"test.svg")
 }
 
-test_bound_capital()
+test_main()
