@@ -37,6 +37,6 @@ Usage: See bound-capital.R (really), and test.{sh,yaml} for example input
 Depends: R; yaml & docopt R libraries
 
 TODO:
-  - Consider how to handle multiple debits of the same group within
-    the next credit window
-  - Display free capital as well
+  - Determine what's going on with [./bound-capital.R -a 2000 <capital.yaml]
+  - just return costs in bound_capital if savings > costs
+  - Display free capital in output as well

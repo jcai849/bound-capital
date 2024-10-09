@@ -26,6 +26,7 @@ Options:
 
 library(docopt)
 library(yaml)
+options(warn=2)
 
 main <- function(argv=commandArgs(TRUE)) {
 	opts <- docopt(DOC, args=argv, version=paste0(VERSION, '\n'))
@@ -41,7 +42,7 @@ main <- function(argv=commandArgs(TRUE)) {
 }
 
 write_output <- function(x) {
-	as.list(x) |> as.yaml(precision=2) |> cat(sep='\n')
+	as.list(x) |> as.yaml() |> cat(sep='\n')
 }
 
 LedgerSpec <- function(x) {
@@ -97,8 +98,8 @@ Entry.Entry <- identity
 Entry.list <- function(x) {
 	stopifnot(is.list(x), all(names(x) %in% c("amount", "dates")))
 	within(x, {
-		if (!is.null(amount))
-			amount <- rep(amount, length.out=length(dates))
+		amount <- if (!is.null(amount))
+		   rep(amount, length.out=length(dates))
 	}) |>
 	structure(class="Entry")
 }
@@ -224,6 +225,11 @@ collapse.Entry <- function(x) with(x, {
 	list(amount=_, dates=sort(unique(dates))) |>
 	Entry()
 })
+collapse.AmountsList <- function(x) {
+	known_amounts <- x[!sapply(x, is.null)]
+	if (length(known_amounts) != 1) stop("not implemented yet!")
+	known_amounts[[1]]
+}
 
 normalise <- function(x, compare) UseMethod("normalise", x)
 normalise.Ledger <- function(x) {
@@ -238,7 +244,10 @@ normalise.DebitsList <- function(x, compare) {
 
 }
 normalise.CreditsList <- function(x, compare) {
-	Map(list, dates=seq(compare), amount=Amount(x)) |> Credits()
+	dates <- seq(compare)
+	amount <- collapse(Amount(x))[dates]
+	Map(list, dates=dates, amount=amount) |>
+	Credits()
 }
 
 with_capital_growth <- function(f) function(x, accumulated_capital) {
@@ -256,7 +265,8 @@ bound_capital.Ledger <- function(x, accumulated_capital) {
 }
 bound_capital.DebitsList <- with_capital_growth(
 	\(origin, costs, time_until_debits)
-		savings_ratio(origin + 1, costs, time_until_debits - 1)
+		savings_ratio(origin + 1, costs, time_until_debits - 1) |>
+		round(2)
 )
 maybe_plot <- function(x, accumulated_capital, plotname) {
 	p <- with_capital_growth(\(origin, costs, time_until_debits)
