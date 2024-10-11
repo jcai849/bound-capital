@@ -139,6 +139,12 @@ Debits.Entries <- function(x)
 	structure(x, class=c("DebitsList", "Debits", class(x)))
 Debits.LedgerList <- function(x) x$debits
 is.Debits <- function(x) inherits(x, "Debits")
+Summary.Debits <- function(..., na.rm=FALSE) {
+	x <- lapply(list(...), \(x) lapply(x, "[[", "amount")) |>
+	unlist()
+	do.call(.Generic, list(x))
+}
+
 
 # extend dates past some point if allowed; return dates
 extend_dates <- function(x, beyond) UseMethod("extend_dates", x)
@@ -227,8 +233,11 @@ collapse.Entry <- function(x) with(x, {
 })
 collapse.AmountsList <- function(x) {
 	known_amounts <- x[!sapply(x, is.null)]
-	if (length(known_amounts) != 1) stop("not implemented yet!")
-	known_amounts[[1]]
+	if (length(known_amounts) == 1) {
+		return(known_amounts[[1]])
+	} else if (length(known_amounts) == 0) {
+		return(x)
+	} else stop("not implemented yet!")
 }
 
 normalise <- function(x, compare) UseMethod("normalise", x)
@@ -241,7 +250,6 @@ normalise.DebitsList <- function(x, compare) {
 	# What is the earliest credit that each debit immediately succeeds?
 	lapply(Dates(x), findInterval, sort(compare)) |>
 	Map(list, dates=_, amount=Amount(x)) |> Debits()
-
 }
 normalise.CreditsList <- function(x, compare) {
 	dates <- seq(compare)
@@ -265,7 +273,7 @@ bound_capital.Ledger <- function(x, accumulated_capital) {
 }
 bound_capital.DebitsList <- with_capital_growth(
 	\(origin, costs, time_until_debits)
-		savings_ratio(origin + 1, costs, time_until_debits - 1) |>
+		savings_ratio(abs(origin + 1), costs, time_until_debits - 1) |>
 		round(2)
 )
 maybe_plot <- function(x, accumulated_capital, plotname) {
